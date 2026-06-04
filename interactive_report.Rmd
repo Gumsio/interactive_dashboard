@@ -1,11 +1,57 @@
 ---
-title: "Untitled"
+title: "IMDB Movie Finder"
 output: 
   flexdashboard::flex_dashboard:
     orientation: columns
     vertical_layout: fill
+    logo: PP_logotyp_ANG_RGB.png
 runtime: shiny
 ---
+
+<style>
+.navbar-logo img {
+  max-height: 80px !important; 
+  width: auto !important;
+}
+
+.navbar {
+  height: 80px !important;
+  min-height: 80px !important; 
+}
+body {
+  padding-top: 80px !important; 
+}
+
+.navbar-header {
+  display: flex !important;
+  align-items: center !important; 
+  height: 80px !important;       
+  width: 100% !important;
+}
+
+.navbar-logo {
+  display: flex !important;
+  align-items: center !important;
+  padding-left: 15px !important;
+  position: static !important;
+}
+
+.navbar-brand {
+  flex-grow: 1 !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+  font-size: 26px !important; 
+  font-weight: 800 !important; 
+  letter-spacing: 1.5px !important;
+  color: #F7F7F7 !important;  
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.1) !important;
+}
+</style>
 
 ```{r setup, include=FALSE}
 library(flexdashboard)
@@ -15,7 +61,6 @@ library(shiny)
 ```
 
 ```{r, include=FALSE}
-setwd("~/dev/studia/sem_4/viz/interactive")
 data = read.csv("IMDB top 1000.csv")
 ```
 
