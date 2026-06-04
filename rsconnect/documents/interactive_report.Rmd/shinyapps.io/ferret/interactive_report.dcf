@@ -1,0 +1,12 @@
+name: interactive_report
+title: interactive_report
+username: ferret
+account: ferret
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 17466244
+bundleId: 12082150
+url: https://ferret.shinyapps.io/interactive_report/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
