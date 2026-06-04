@@ -8,6 +8,7 @@ output:
 runtime: shiny
 ---
 
+
 <style>
 .navbar-logo img {
   max-height: 80px !important; 
@@ -53,38 +54,385 @@ body {
 }
 </style>
 
+
 ```{r setup, include=FALSE}
 library(flexdashboard)
 library(ggplot2)
 library(plotly)
 library(shiny)
+library(DT)
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(readr)
+library(jsonlite)
 ```
 
 ```{r, include=FALSE}
-data = read.csv("IMDB top 1000.csv")
+data = read.csv("imdb_top_1000.csv")
 ```
 
-Column {data-width=650}
+Column {data-width=250}
 -----------------------------------------------------------------------
 
-### Chart A
+### Movie Datatable
 
 ```{r}
+# Movie table logic
 
+# This makes it reactive
+DTOutput("movie_table")
+output$movie_table = renderDT({
+  table_data = data %>%
+    select("Series_Title", "Released_Year", "Director", "IMDB_Rating")
+
+datatable(table_data,
+          selection = list(mode = 'single', selected = 1),
+          class = 'display compact',
+          rownames = FALSE,
+          options = list(
+            pageLength = 24,
+            autoWidth = TRUE,
+            searchHighlight = TRUE))
+})
 ```
 
 Column {data-width=350}
 -----------------------------------------------------------------------
 
-### Chart B
+###
 
 ```{r}
+# Poster logic
+output$poster_ui = renderUI({
+  req(input$movie_table_rows_selected)
+  
+  selected_idx = input$movie_table_rows_selected
+  
+  img_url = data$Poster_Link[selected_idx]
+  
+  tags$img(src = img_url, style = "height: 100%; width: 100%; object-fit: contain; border-radius: 8px; filter: drop-shadow(2px 2px 5px rgba(0,0,0,0.2));")
+})
 
+
+# Stars logic
+output$rating_ui = renderUI({
+  req(input$movie_table_rows_selected) 
+  selected_idx = input$movie_table_rows_selected
+  
+  rating = as.numeric(data$IMDB_Rating[selected_idx])
+  rating_text = sprintf("%.1f", rating)
+  star_pct = round((rating / 10) * 100, 1)
+  
+  HTML(paste0('
+    <div style="text-align: center; display: flex; flex-direction: column; justify-content: center; height: 100%;">
+      <div style="font-size: 96px; font-weight: 900; color: #333; line-height: 1;">', rating_text, '</div>
+      
+      <div style="margin-top: 8px;">
+        <span style="font-size: 56px; 
+                     background: linear-gradient(90deg, #F4B400 ', star_pct, '%, #e0e0e0 ', star_pct, '%);
+                     -webkit-background-clip: text;
+                     -webkit-text-fill-color: transparent;
+                     display: inline-block;">
+          ★★★★★★★★★★
+        </span>
+      </div>
+      
+    </div>
+  '))
+})
 ```
 
-### Chart C
+<div style="display: flex; gap: 10px; height: 100%;">
+  <div style="flex: 1; text-align: left; height: 100%;">
+```{r}
+# Poster displayed
+uiOutput("poster_ui", style = "height: 100%;")
+```
+  </div>
+  <div style="flex: 4; height: 100%; overflow-y: auto;">
+```{r}
+# Stars displayed
+uiOutput("rating_ui", style = "height: 100%;")
+```
+  </div>
+</div>
+
+### Actors
 
 ```{r}
-
+# Getting images
+get_tmdb_image = function(actor_name, api_key) {
+  safe_name = URLencode(trimws(actor_name))
+  
+  tmdb_api_url = paste0("https://", "api.themoviedb.org/3/search/person?query=", safe_name, "&api_key=", api_key)
+  tmdb_img_base = paste0("https://", "image.tmdb.org/t/p/w200")
+  fallback_base = paste0("https://", "[ui-avatars.com/api/?name=](https://ui-avatars.com/api/?name=)", safe_name, "&background=random&color=fff&size=150&bold=true")
+  
+  img_url = tryCatch({
+    api_data = jsonlite::fromJSON(tmdb_api_url)
+    
+    if (!is.null(api_data$results) && is.data.frame(api_data$results) && nrow(api_data$results) > 0) {
+      p_path = api_data$results$profile_path[1]
+      
+      if (!is.null(p_path) && !is.na(p_path) && p_path != "") {
+        message("TMDB SUCCESS: Found photo for ", actor_name)
+        return(paste0(tmdb_img_base, p_path))
+      }
+    }
+    
+    message("TMDB WARNING: ", actor_name, " found, but has no profile picture. Using fallback.")
+    return(fallback_base)
+    
+  }, error = function(e) {
+    message("TMDB CRITICAL ERROR for ", actor_name, ": ", e$message)
+    return(fallback_base)
+  })
+  
+  return(img_url)
+}
 ```
 
+```{r}
+# Actor displaying logic
+output$cast_ui = renderUI({
+  req(input$movie_table_rows_selected) 
+  selected_idx = input$movie_table_rows_selected
+
+  tmdb_key = "46c2ebcda9588c28b102306512e4161a" 
+  
+  actors = c(
+    trimws(data$Star1[selected_idx]),
+    trimws(data$Star2[selected_idx]),
+    trimws(data$Star3[selected_idx]),
+    trimws(data$Star4[selected_idx])
+  )
+  
+  actors = actors[!is.na(actors) & actors != ""]
+  
+  actor_cards = lapply(actors, function(name) {
+    img_url = get_tmdb_image(name, tmdb_key)
+    
+    paste0('
+      <div style="display: flex; flex-direction: column; align-items: center; width: 100px; margin: 10px;">
+        <img src="', img_url, '" style="width: 75px; height: 75px; border-radius: 50%; object-fit: cover; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid #eee;">
+        <div style="font-size: 13px; font-weight: 600; text-align: center; margin-top: 8px; color: #444; line-height: 1.2;">', name, '</div>
+      </div>
+    ')
+  })
+  
+  HTML(paste0('
+    <div style="display: flex; flex-direction: row; flex-wrap: wrap; justify-content: space-evenly; align-items: flex-start; width: 100%; padding-top: 10px;">', 
+      paste(actor_cards, collapse = ""), 
+    '</div>
+  '))
+})
+```
+
+```{r}
+# Actors displayed
+uiOutput("cast_ui")
+```
+
+### More by Director
+
+```{r}
+# Logic for other movies by the same director
+output$director_movies_ui = renderUI({
+  # Ensure a row is selected
+  req(input$movie_table_rows_selected) 
+  
+  selected_idx = input$movie_table_rows_selected
+  
+  # Get the current movie and director
+  current_director = data$Director[selected_idx]
+  current_movie = data$Series_Title[selected_idx]
+  
+  # Filter dataset for same director, but exclude the current movie
+  other_movies = data %>%
+    filter(Director == current_director & Series_Title != current_movie)
+  
+  # Handle cases where the director has no other movies in the top 1000
+  if (nrow(other_movies) == 0) {
+    return(HTML(paste0(
+      '<div style="text-align: center; padding: 20px; color: #777; font-style: italic;">',
+      'No other movies by ', current_director, ' in the Top 1000.',
+      '</div>'
+    )))
+  }
+  
+  # Build HTML cards for each movie found
+  movie_cards = lapply(1:nrow(other_movies), function(i) {
+    img_url = other_movies$Poster_Link[i]
+    title = other_movies$Series_Title[i]
+    
+    paste0('
+      <div style="display: flex; flex-direction: column; align-items: center; width: 110px; flex-shrink: 0; margin-right: 15px;">
+        <img src="', img_url, '" style="width: 100px; height: 140px; border-radius: 6px; object-fit: cover; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">
+        <div style="font-size: 12px; font-weight: 600; text-align: center; margin-top: 8px; color: #333; line-height: 1.2;">', title, '</div>
+      </div>
+    ')
+  })
+  
+  # Wrap the cards in a horizontally scrolling flex container
+  HTML(paste0('
+    <div style="font-weight: 600; font-size: 16px; margin-bottom: 10px; color: #444;">
+      More by ', current_director, '
+    </div>
+    <div style="display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 10px; width: 100%;">', 
+      paste(movie_cards, collapse = ""), 
+    '</div>
+  '))
+})
+```
+
+```{r}
+# Display the UI
+uiOutput("director_movies_ui")
+```
+
+### Reviews
+
+```{r}
+# 1. State management for cycling through reviews
+current_review_idx = reactiveVal(1)
+
+# Reset back to the first review when a new movie is selected
+observeEvent(input$movie_table_rows_selected, {
+  current_review_idx(1)
+})
+
+# Increment the index when the "Next" button is clicked
+observeEvent(input$next_review_btn, {
+  reviews = movie_reviews()
+  if (is.data.frame(reviews) && nrow(reviews) > 0) {
+    next_idx = current_review_idx() + 1
+    if (next_idx > nrow(reviews)) {
+      next_idx = 1
+    }
+    current_review_idx(next_idx)
+  }
+})
+
+# 2. Fetch and process the review data
+movie_reviews = reactive({
+  req(input$movie_table_rows_selected)
+  selected_idx = input$movie_table_rows_selected
+  
+  # CLEAN THE TITLE: Remove whitespace and hidden characters
+  title = trimws(as.character(data$Series_Title[selected_idx]))
+  tmdb_key = "46c2ebcda9588c28b102306512e4161a" 
+  
+  # Step A: Search for the movie ID on TMDB
+  safe_title = URLencode(title, reserved = TRUE)
+  
+  # Splitting the "https://" prevents RStudio from auto-formatting it as a markdown link
+  search_base = paste0("https://", "api.themoviedb.org/3/search/movie?query=")
+  search_url = paste0(search_base, safe_title, "&api_key=", tmdb_key)
+  
+  search_res = tryCatch({
+    jsonlite::fromJSON(search_url)
+  }, error = function(e) {
+    return(list(is_error = TRUE, msg = paste("HTTP/API Error on Search:", e$message)))
+  })
+  
+  if (isTRUE(search_res$is_error)) return(search_res)
+  
+  if (is.null(search_res$results) || length(search_res$results) == 0 || (is.data.frame(search_res$results) && nrow(search_res$results) == 0)) {
+    return(list(is_error = TRUE, msg = paste("TMDB Search successful, but 0 matches found for:", title)))
+  }
+  
+  movie_id = search_res$results$id[1]
+  
+  # Step B: Get reviews for that specific movie ID
+  reviews_base = paste0("https://", "api.themoviedb.org/3/movie/")
+  reviews_url = paste0(reviews_base, movie_id, "/reviews?api_key=", tmdb_key)
+  
+  reviews_res = tryCatch({
+    jsonlite::fromJSON(reviews_url)
+  }, error = function(e) {
+    return(list(is_error = TRUE, msg = paste("HTTP/API Error on Reviews:", e$message)))
+  })
+  
+  if (isTRUE(reviews_res$is_error)) return(reviews_res)
+  
+  if (is.null(reviews_res$results) || length(reviews_res$results) == 0 || (is.data.frame(reviews_res$results) && nrow(reviews_res$results) == 0)) {
+    return(data.frame()) 
+  }
+  
+  reviews_df = reviews_res$results
+  
+  # Step C: Sort by author's rating (descending)
+  if ("author_details" %in% names(reviews_df)) {
+    ratings = as.numeric(reviews_df$author_details$rating)
+    ratings[is.na(ratings)] = 0
+    reviews_df$rating = ratings
+    reviews_df = reviews_df[order(-reviews_df$rating), ]
+  }
+  
+  return(reviews_df)
+})
+
+# 3. Render the specific review
+output$reviews_ui = renderUI({
+  reviews = movie_reviews()
+  
+  # Catch our custom error object and print it directly to the dashboard screen
+  if (!is.data.frame(reviews) && is.list(reviews) && isTRUE(reviews$is_error)) {
+    return(HTML(paste0(
+      '<div style="padding: 20px; text-align: center; border: 2px dashed #d9534f; border-radius: 8px; color: #d9534f; margin-bottom: 10px;">',
+      '<b style="font-size: 16px;">Diagnostic Info:</b><br><br>', reviews$msg, 
+      '</div>'
+    )))
+  }
+  
+  # Normal empty state (0 reviews found on a successful movie match)
+  if (is.data.frame(reviews) && nrow(reviews) == 0) {
+    return(HTML('<div style="padding: 20px; text-align: center; color: #777; font-style: italic;">No reviews have been written for this movie on TMDB yet.</div>'))
+  }
+  
+  idx = current_review_idx()
+  review = reviews[idx, ]
+  
+  author = review$author
+  content = review$content
+  
+  # Format the rating badge if they left one
+  rating_display = ""
+  if (!is.null(review$rating) && !is.na(review$rating) && review$rating > 0) {
+    rating_display = paste0('<span style="background: #F4B400; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 10px;">★ ', review$rating, '/10</span>')
+  }
+  
+  HTML(paste0('
+    <div style="padding: 15px; background: #f9f9f9; border-radius: 8px; border: 1px solid #eaeaea; margin-bottom: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <div style="font-weight: bold; font-size: 16px; color: #333;">', author, rating_display, '</div>
+        <div style="font-size: 12px; color: #888;">Review ', idx, ' of ', nrow(reviews), '</div>
+      </div>
+      <div style="font-size: 14px; color: #555; line-height: 1.6; max-height: 200px; overflow-y: auto; padding-right: 5px;">
+        ', gsub("\n", "<br>", content), '
+      </div>
+    </div>
+  '))
+})
+
+# 4. Render the "Next" button conditionally
+output$review_controls_ui = renderUI({
+  reviews = movie_reviews()
+  # Hide the button if there's an error or only 1/0 reviews
+  if (!is.data.frame(reviews) || nrow(reviews) <= 1) {
+    return(NULL) 
+  }
+  
+  div(style = "text-align: right;",
+    actionButton("next_review_btn", "Next Review ➔", 
+                 style = "color: #fff; background-color: #337ab7; border-color: #2e6da4; border-radius: 4px; font-weight: 600;")
+  )
+})
+```
+
+```{r}
+# UI rendered safely without nested raw flexbox
+uiOutput("reviews_ui")
+uiOutput("review_controls_ui")
+```

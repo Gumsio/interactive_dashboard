@@ -1,3 +1,5 @@
 *.docx#
 *.docx
 *.zip
+.RData
+.Rhistory
