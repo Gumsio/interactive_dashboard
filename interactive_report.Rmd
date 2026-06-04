@@ -237,22 +237,18 @@ uiOutput("cast_ui")
 ### More by Director
 
 ```{r}
-# Logic for other movies by the same director
+# Same from director logic
 output$director_movies_ui = renderUI({
-  # Ensure a row is selected
   req(input$movie_table_rows_selected) 
   
   selected_idx = input$movie_table_rows_selected
   
-  # Get the current movie and director
   current_director = data$Director[selected_idx]
   current_movie = data$Series_Title[selected_idx]
   
-  # Filter dataset for same director, but exclude the current movie
   other_movies = data %>%
     filter(Director == current_director & Series_Title != current_movie)
-  
-  # Handle cases where the director has no other movies in the top 1000
+
   if (nrow(other_movies) == 0) {
     return(HTML(paste0(
       '<div style="text-align: center; padding: 20px; color: #777; font-style: italic;">',
@@ -261,7 +257,6 @@ output$director_movies_ui = renderUI({
     )))
   }
   
-  # Build HTML cards for each movie found
   movie_cards = lapply(1:nrow(other_movies), function(i) {
     img_url = other_movies$Poster_Link[i]
     title = other_movies$Series_Title[i]
@@ -274,7 +269,6 @@ output$director_movies_ui = renderUI({
     ')
   })
   
-  # Wrap the cards in a horizontally scrolling flex container
   HTML(paste0('
     <div style="font-weight: 600; font-size: 16px; margin-bottom: 10px; color: #444;">
       More by ', current_director, '
@@ -294,15 +288,13 @@ uiOutput("director_movies_ui")
 ### Reviews
 
 ```{r}
-# 1. State management for cycling through reviews
+# Reviews logic
 current_review_idx = reactiveVal(1)
 
-# Reset back to the first review when a new movie is selected
 observeEvent(input$movie_table_rows_selected, {
   current_review_idx(1)
 })
 
-# Increment the index when the "Next" button is clicked
 observeEvent(input$next_review_btn, {
   reviews = movie_reviews()
   if (is.data.frame(reviews) && nrow(reviews) > 0) {
@@ -314,19 +306,15 @@ observeEvent(input$next_review_btn, {
   }
 })
 
-# 2. Fetch and process the review data
 movie_reviews = reactive({
   req(input$movie_table_rows_selected)
   selected_idx = input$movie_table_rows_selected
   
-  # CLEAN THE TITLE: Remove whitespace and hidden characters
   title = trimws(as.character(data$Series_Title[selected_idx]))
   tmdb_key = "46c2ebcda9588c28b102306512e4161a" 
   
-  # Step A: Search for the movie ID on TMDB
   safe_title = URLencode(title, reserved = TRUE)
   
-  # Splitting the "https://" prevents RStudio from auto-formatting it as a markdown link
   search_base = paste0("https://", "api.themoviedb.org/3/search/movie?query=")
   search_url = paste0(search_base, safe_title, "&api_key=", tmdb_key)
   
@@ -344,7 +332,6 @@ movie_reviews = reactive({
   
   movie_id = search_res$results$id[1]
   
-  # Step B: Get reviews for that specific movie ID
   reviews_base = paste0("https://", "api.themoviedb.org/3/movie/")
   reviews_url = paste0(reviews_base, movie_id, "/reviews?api_key=", tmdb_key)
   
@@ -362,7 +349,6 @@ movie_reviews = reactive({
   
   reviews_df = reviews_res$results
   
-  # Step C: Sort by author's rating (descending)
   if ("author_details" %in% names(reviews_df)) {
     ratings = as.numeric(reviews_df$author_details$rating)
     ratings[is.na(ratings)] = 0
@@ -373,11 +359,9 @@ movie_reviews = reactive({
   return(reviews_df)
 })
 
-# 3. Render the specific review
 output$reviews_ui = renderUI({
   reviews = movie_reviews()
   
-  # Catch our custom error object and print it directly to the dashboard screen
   if (!is.data.frame(reviews) && is.list(reviews) && isTRUE(reviews$is_error)) {
     return(HTML(paste0(
       '<div style="padding: 20px; text-align: center; border: 2px dashed #d9534f; border-radius: 8px; color: #d9534f; margin-bottom: 10px;">',
@@ -386,7 +370,6 @@ output$reviews_ui = renderUI({
     )))
   }
   
-  # Normal empty state (0 reviews found on a successful movie match)
   if (is.data.frame(reviews) && nrow(reviews) == 0) {
     return(HTML('<div style="padding: 20px; text-align: center; color: #777; font-style: italic;">No reviews have been written for this movie on TMDB yet.</div>'))
   }
@@ -397,7 +380,6 @@ output$reviews_ui = renderUI({
   author = review$author
   content = review$content
   
-  # Format the rating badge if they left one
   rating_display = ""
   if (!is.null(review$rating) && !is.na(review$rating) && review$rating > 0) {
     rating_display = paste0('<span style="background: #F4B400; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 10px;">★ ', review$rating, '/10</span>')
@@ -416,10 +398,9 @@ output$reviews_ui = renderUI({
   '))
 })
 
-# 4. Render the "Next" button conditionally
+# Next button
 output$review_controls_ui = renderUI({
   reviews = movie_reviews()
-  # Hide the button if there's an error or only 1/0 reviews
   if (!is.data.frame(reviews) || nrow(reviews) <= 1) {
     return(NULL) 
   }
