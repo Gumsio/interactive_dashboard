@@ -72,32 +72,30 @@ library(jsonlite)
 data = read.csv("imdb_top_1000.csv")
 ```
 
-Column {data-width=250}
+Column {data-width=350}
 -----------------------------------------------------------------------
 
 ### Movie Datatable
 
 ```{r}
 # Movie table logic
-
-# This makes it reactive
 DTOutput("movie_table")
 output$movie_table = renderDT({
   table_data = data %>%
     select("Series_Title", "Released_Year", "Director", "IMDB_Rating")
 
-datatable(table_data,
+  datatable(table_data,
           selection = list(mode = 'single', selected = 1),
           class = 'display compact',
           rownames = FALSE,
           options = list(
-            pageLength = 24,
+            pageLength = 20,
             autoWidth = TRUE,
             searchHighlight = TRUE))
 })
 ```
 
-Column {data-width=350}
+Column {data-width=650}
 -----------------------------------------------------------------------
 
 ###
@@ -106,14 +104,40 @@ Column {data-width=350}
 # Poster logic
 output$poster_ui = renderUI({
   req(input$movie_table_rows_selected)
-  
   selected_idx = input$movie_table_rows_selected
   
-  img_url = data$Poster_Link[selected_idx]
+  fallback_url = data$Poster_Link[selected_idx]
+  img_url = fallback_url
+  
+  title = trimws(as.character(data$Series_Title[selected_idx]))
+  
+  raw_year = as.character(data$Released_Year[selected_idx])
+  year = stringr::str_extract(raw_year, "\\d{4}") 
+  
+  tmdb_key = "46c2ebcda9588c28b102306512e4161a" 
+  safe_title = URLencode(title, reserved = TRUE)
+  
+  search_url = paste0("https://api.themoviedb.org/3/search/movie?query=", safe_title)
+  if (!is.na(year)) {
+    search_url = paste0(search_url, "&primary_release_year=", year)
+  }
+  search_url = paste0(search_url, "&api_key=", tmdb_key)
+  
+  tryCatch({
+    api_data = jsonlite::fromJSON(search_url)
+    
+    if (!is.null(api_data$results) && is.data.frame(api_data$results) && nrow(api_data$results) > 0) {
+      p_path = api_data$results$poster_path[1]
+      
+      if (!is.null(p_path) && !is.na(p_path) && p_path != "") {
+        img_url = paste0("https://image.tmdb.org/t/p/w500", p_path)
+      }
+    }
+  }, error = function(e) {
+  })
   
   tags$img(src = img_url, style = "height: 100%; width: 100%; object-fit: contain; border-radius: 8px; filter: drop-shadow(2px 2px 5px rgba(0,0,0,0.2));")
 })
-
 
 # Stars logic
 output$rating_ui = renderUI({
@@ -126,9 +150,8 @@ output$rating_ui = renderUI({
   
   HTML(paste0('
     <div style="text-align: center; display: flex; flex-direction: column; justify-content: center; height: 100%;">
-      <div style="font-size: 96px; font-weight: 900; color: #333; line-height: 1;">', rating_text, '</div>
-      
-      <div style="margin-top: 8px;">
+      <div style="font-size: 72px; font-weight: 900; color: #333; line-height: 1;">', rating_text, '</div>
+      <div style="margin-top: 0px;">
         <span style="font-size: 56px; 
                      background: linear-gradient(90deg, #F4B400 ', star_pct, '%, #e0e0e0 ', star_pct, '%);
                      -webkit-background-clip: text;
@@ -137,64 +160,33 @@ output$rating_ui = renderUI({
           ★★★★★★★★★★
         </span>
       </div>
-      
     </div>
   '))
 })
-```
 
-<div style="display: flex; gap: 10px; height: 100%;">
-  <div style="flex: 1; text-align: left; height: 100%;">
-```{r}
-# Poster displayed
-uiOutput("poster_ui", style = "height: 100%;")
-```
-  </div>
-  <div style="flex: 4; height: 100%; overflow-y: auto;">
-```{r}
-# Stars displayed
-uiOutput("rating_ui", style = "height: 100%;")
-```
-  </div>
-</div>
-
-### Actors
-
-```{r}
 # Getting images
 get_tmdb_image = function(actor_name, api_key) {
   safe_name = URLencode(trimws(actor_name))
-  
-  tmdb_api_url = paste0("https://", "api.themoviedb.org/3/search/person?query=", safe_name, "&api_key=", api_key)
-  tmdb_img_base = paste0("https://", "image.tmdb.org/t/p/w200")
-  fallback_base = paste0("https://", "[ui-avatars.com/api/?name=](https://ui-avatars.com/api/?name=)", safe_name, "&background=random&color=fff&size=150&bold=true")
+  tmdb_api_url = paste0("https://api.themoviedb.org/3/search/person?query=", safe_name, "&api_key=", api_key)
+  tmdb_img_base = paste0("https://image.tmdb.org/t/p/w200")
+  fallback_base = paste0("https://ui-avatars.com/api/?name=", safe_name, "&background=random&color=fff&size=150&bold=true")
   
   img_url = tryCatch({
     api_data = jsonlite::fromJSON(tmdb_api_url)
-    
     if (!is.null(api_data$results) && is.data.frame(api_data$results) && nrow(api_data$results) > 0) {
       p_path = api_data$results$profile_path[1]
-      
       if (!is.null(p_path) && !is.na(p_path) && p_path != "") {
-        message("TMDB SUCCESS: Found photo for ", actor_name)
         return(paste0(tmdb_img_base, p_path))
       }
     }
-    
-    message("TMDB WARNING: ", actor_name, " found, but has no profile picture. Using fallback.")
     return(fallback_base)
-    
   }, error = function(e) {
-    message("TMDB CRITICAL ERROR for ", actor_name, ": ", e$message)
     return(fallback_base)
   })
-  
   return(img_url)
 }
-```
 
-```{r}
-# Actor displaying logic
+#Actor displaying logic
 output$cast_ui = renderUI({
   req(input$movie_table_rows_selected) 
   selected_idx = input$movie_table_rows_selected
@@ -212,9 +204,8 @@ output$cast_ui = renderUI({
   
   actor_cards = lapply(actors, function(name) {
     img_url = get_tmdb_image(name, tmdb_key)
-    
     paste0('
-      <div style="display: flex; flex-direction: column; align-items: center; width: 100px; margin: 10px;">
+      <div style="display: flex; flex-direction: column; align-items: center; width: 100px;">
         <img src="', img_url, '" style="width: 75px; height: 75px; border-radius: 50%; object-fit: cover; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid #eee;">
         <div style="font-size: 13px; font-weight: 600; text-align: center; margin-top: 8px; color: #444; line-height: 1.2;">', name, '</div>
       </div>
@@ -222,25 +213,30 @@ output$cast_ui = renderUI({
   })
   
   HTML(paste0('
-    <div style="display: flex; flex-direction: row; flex-wrap: wrap; justify-content: space-evenly; align-items: flex-start; width: 100%; padding-top: 10px;">', 
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; justify-items: center; align-content: center; width: 100%; height: 100%; padding-top: 5px;">', 
       paste(actor_cards, collapse = ""), 
     '</div>
   '))
 })
+
+div(style = "display: grid; grid-template-columns: 1fr 2fr 2fr; gap: 10px; height: calc(100% + 16px); width: calc(100% + 16px); margin: -8px; background-color: #f5f5f5;",
+  div(style = "background-color: #fff; border: 1px solid #e3e3e3; border-radius: 4px; padding:10px; display: flex; flex-direction: column; min-height: 0;",
+    uiOutput("poster_ui", style = "flex-grow: 1; height: 100%;")
+  ),
+  div(style = "background-color: #fff; border: 1px solid #e3e3e3; border-radius: 4px; padding: 10px; display: flex; flex-direction: column; min-height: 0;",
+    uiOutput("rating_ui", style = "flex-grow: 1; height: 100%;")
+  ),
+  div(style = "background-color: #fff; border: 1px solid #e3e3e3; border-radius: 4px; padding: 10px; display: flex; flex-direction: column; overflow-y: auto; min-height: 0;",
+    uiOutput("cast_ui", style = "flex-grow: 1; height: 100%;")
+  )
+)
 ```
 
-```{r}
-# Actors displayed
-uiOutput("cast_ui")
-```
-
-### More by Director
+### {data-height=300}
 
 ```{r}
-# Same from director logic
 output$director_movies_ui = renderUI({
   req(input$movie_table_rows_selected) 
-  
   selected_idx = input$movie_table_rows_selected
   
   current_director = data$Director[selected_idx]
@@ -260,7 +256,6 @@ output$director_movies_ui = renderUI({
   movie_cards = lapply(1:nrow(other_movies), function(i) {
     img_url = other_movies$Poster_Link[i]
     title = other_movies$Series_Title[i]
-    
     paste0('
       <div style="display: flex; flex-direction: column; align-items: center; width: 110px; flex-shrink: 0; margin-right: 15px;">
         <img src="', img_url, '" style="width: 100px; height: 140px; border-radius: 6px; object-fit: cover; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">
@@ -281,14 +276,12 @@ output$director_movies_ui = renderUI({
 ```
 
 ```{r}
-# Display the UI
 uiOutput("director_movies_ui")
 ```
 
-### Reviews
+###
 
 ```{r}
-# Reviews logic
 current_review_idx = reactiveVal(1)
 
 observeEvent(input$movie_table_rows_selected, {
@@ -314,8 +307,7 @@ movie_reviews = reactive({
   tmdb_key = "46c2ebcda9588c28b102306512e4161a" 
   
   safe_title = URLencode(title, reserved = TRUE)
-  
-  search_base = paste0("https://", "api.themoviedb.org/3/search/movie?query=")
+  search_base = paste0("https://api.themoviedb.org/3/search/movie?query=")
   search_url = paste0(search_base, safe_title, "&api_key=", tmdb_key)
   
   search_res = tryCatch({
@@ -331,8 +323,7 @@ movie_reviews = reactive({
   }
   
   movie_id = search_res$results$id[1]
-  
-  reviews_base = paste0("https://", "api.themoviedb.org/3/movie/")
+  reviews_base = paste0("https://api.themoviedb.org/3/movie/")
   reviews_url = paste0(reviews_base, movie_id, "/reviews?api_key=", tmdb_key)
   
   reviews_res = tryCatch({
@@ -364,7 +355,7 @@ output$reviews_ui = renderUI({
   
   if (!is.data.frame(reviews) && is.list(reviews) && isTRUE(reviews$is_error)) {
     return(HTML(paste0(
-      '<div style="padding: 20px; text-align: center; border: 2px dashed #d9534f; border-radius: 8px; color: #d9534f; margin-bottom: 10px;">',
+      '<div style="padding: 20px; text-align: center; border: 2px dashed #d9534f; border-radius: 8px; color: #d9534f;">',
       '<b style="font-size: 16px;">Diagnostic Info:</b><br><br>', reviews$msg, 
       '</div>'
     )))
@@ -386,19 +377,18 @@ output$reviews_ui = renderUI({
   }
   
   HTML(paste0('
-    <div style="padding: 15px; background: #f9f9f9; border-radius: 8px; border: 1px solid #eaeaea; margin-bottom: 10px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+    <div style="padding: 15px; background: #f9f9f9; border-radius: 8px; border: 1px solid #eaeaea; display: flex; flex-direction: column; height: 100%;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-shrink: 0;">
         <div style="font-weight: bold; font-size: 16px; color: #333;">', author, rating_display, '</div>
         <div style="font-size: 12px; color: #888;">Review ', idx, ' of ', nrow(reviews), '</div>
       </div>
-      <div style="font-size: 14px; color: #555; line-height: 1.6; max-height: 200px; overflow-y: auto; padding-right: 5px;">
+      <div style="font-size: 14px; color: #555; line-height: 1.6; overflow-y: auto; padding-right: 5px; flex-grow: 1; min-height: 0;">
         ', gsub("\n", "<br>", content), '
       </div>
     </div>
   '))
 })
 
-# Next button
 output$review_controls_ui = renderUI({
   reviews = movie_reviews()
   if (!is.data.frame(reviews) || nrow(reviews) <= 1) {
@@ -413,7 +403,12 @@ output$review_controls_ui = renderUI({
 ```
 
 ```{r}
-# UI rendered safely without nested raw flexbox
-uiOutput("reviews_ui")
-uiOutput("review_controls_ui")
+div(style = "display: flex; flex-direction: column; height: 100%; gap: 10px;",
+  div(style = "flex-grow: 1; min-height: 0;",
+    uiOutput("reviews_ui", style = "height: 100%;")
+  ),
+  div(style = "flex-shrink: 0;",
+    uiOutput("review_controls_ui")
+  )
+)
 ```
