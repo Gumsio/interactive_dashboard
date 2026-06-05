@@ -75,7 +75,7 @@ data = read.csv("imdb_top_1000.csv")
 Column {data-width=350}
 -----------------------------------------------------------------------
 
-### Movie Datatable
+###
 
 ```{r}
 # Movie table logic
@@ -89,9 +89,17 @@ output$movie_table = renderDT({
           class = 'display compact',
           rownames = FALSE,
           options = list(
-            pageLength = 20,
+            pageLength = 24,
             autoWidth = TRUE,
             searchHighlight = TRUE))
+})
+  
+# More by director observer
+observeEvent(input$director_movie_clicked, {
+  proxy = dataTableProxy("movie_table")
+  selectRows(proxy, input$director_movie_clicked)
+  target_page = (input$director_movie_clicked - 1) %/% 24 + 1
+  selectPage(proxy, target_page)
 })
 ```
 
@@ -150,9 +158,9 @@ output$rating_ui = renderUI({
   
   HTML(paste0('
     <div style="text-align: center; display: flex; flex-direction: column; justify-content: center; height: 100%;">
-      <div style="font-size: 72px; font-weight: 900; color: #333; line-height: 1;">', rating_text, '</div>
+      <div style="font-size: 56px; font-weight: 900; color: #333; line-height: 1;">', rating_text, '</div>
       <div style="margin-top: 0px;">
-        <span style="font-size: 56px; 
+        <span style="font-size: 32px; 
                      background: linear-gradient(90deg, #F4B400 ', star_pct, '%, #e0e0e0 ', star_pct, '%);
                      -webkit-background-clip: text;
                      -webkit-text-fill-color: transparent;
@@ -242,7 +250,10 @@ output$director_movies_ui = renderUI({
   current_director = data$Director[selected_idx]
   current_movie = data$Series_Title[selected_idx]
   
-  other_movies = data %>%
+  # Attach the original row numbers before filtering so we know exactly what to select
+  data_with_idx = data %>% mutate(orig_idx = row_number())
+  
+  other_movies = data_with_idx %>%
     filter(Director == current_director & Series_Title != current_movie)
 
   if (nrow(other_movies) == 0) {
@@ -253,11 +264,41 @@ output$director_movies_ui = renderUI({
     )))
   }
   
+  tmdb_key = "46c2ebcda9588c28b102306512e4161a"
+  
   movie_cards = lapply(1:nrow(other_movies), function(i) {
-    img_url = other_movies$Poster_Link[i]
     title = other_movies$Series_Title[i]
+    fallback_url = other_movies$Poster_Link[i]
+    raw_year = as.character(other_movies$Released_Year[i])
+    year = stringr::str_extract(raw_year, "\\d{4}")
+    
+    # Grab the original row index for this specific movie
+    target_idx = other_movies$orig_idx[i]
+    
+    img_url = fallback_url
+    safe_title = URLencode(trimws(title), reserved = TRUE)
+    search_url = paste0("https://api.themoviedb.org/3/search/movie?query=", safe_title)
+    if (!is.na(year)) {
+      search_url = paste0(search_url, "&primary_release_year=", year)
+    }
+    search_url = paste0(search_url, "&api_key=", tmdb_key)
+    
+    tryCatch({
+      api_data = jsonlite::fromJSON(search_url)
+      if (!is.null(api_data$results) && is.data.frame(api_data$results) && nrow(api_data$results) > 0) {
+        p_path = api_data$results$poster_path[1]
+        if (!is.null(p_path) && !is.na(p_path) && p_path != "") {
+          img_url = paste0("https://image.tmdb.org/t/p/w200", p_path)
+        }
+      }
+    }, error = function(e) {})
+    
+    # Added onclick event, cursor pointer, and hover scale effect
     paste0('
-      <div style="display: flex; flex-direction: column; align-items: center; width: 110px; flex-shrink: 0; margin-right: 15px;">
+      <div onclick="Shiny.setInputValue(\'director_movie_clicked\', ', target_idx, ', {priority: \'event\'})" 
+           style="cursor: pointer; display: flex; flex-direction: column; align-items: center; width: 110px; flex-shrink: 0; margin-right: 15px; transition: transform 0.2s;"
+           onmouseover="this.style.transform=\'scale(1.05)\'" 
+           onmouseout="this.style.transform=\'scale(1)\'">
         <img src="', img_url, '" style="width: 100px; height: 140px; border-radius: 6px; object-fit: cover; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">
         <div style="font-size: 12px; font-weight: 600; text-align: center; margin-top: 8px; color: #333; line-height: 1.2;">', title, '</div>
       </div>
@@ -268,7 +309,7 @@ output$director_movies_ui = renderUI({
     <div style="font-weight: 600; font-size: 16px; margin-bottom: 10px; color: #444;">
       More by ', current_director, '
     </div>
-    <div style="display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 10px; width: 100%;">', 
+    <div style="display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 10px; width: 100%; padding-top: 5px;">', 
       paste(movie_cards, collapse = ""), 
     '</div>
   '))
